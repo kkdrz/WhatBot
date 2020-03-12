@@ -1,49 +1,63 @@
 import json
 
+import random
 from datetime import datetime, timedelta
 from fbchat import Client, log
 from fbchat.models import *
+import argparse
 
-lastMessageTime = {}
+parser = argparse.ArgumentParser(description='WhatBot Facebook.')
+
+parser.add_argument('--replyAfter', type=int, nargs='+', dest="replyAfter", default=8,
+            help='time from the last message after which it will reply (hours)')
+parser.add_argument('--responsesFile', dest="responsesFile", default='responses.json', help='JSON file with responses (it will choose random one)')
+parser.add_argument('--sessionFile', dest="sessionFile", default='session.json', help='JSON file with Facebook session')
+
+args = parser.parse_args()
+
 
 class WhatBot(Client):
 
-    def onMessage(self, author_id, message_object, thread_id, thread_type, **kwargs):
-        self.markAsDelivered(thread_id, message_object.uid)
-        self.markAsRead(thread_id)
+    lastMessageTime = {}
 
+    def onMessage(self, author_id, message_object, thread_id, thread_type, **kwargs):
         now = datetime.now()
 
-        lastMessageTime[author_id]=now
-        lastMessageTime[thread_id]=now
-
+        self.lastMessageTime[author_id]=now
+        self.lastMessageTime[thread_id]=now
 
     def onTyping(self, author_id=None, status=None, thread_id=None, thread_type=None, msg=None):
         
-        now = datetime.now()
+        if self.shouldSendResponse(author_id, thread_type):
+            self.send(Message(text=self.randomResponse(args.responsesFile)), thread_id=thread_id, thread_type=thread_type)
+            self.lastMessageTime[author_id] = datetime.now()
 
+    def shouldSendResponse(self, id, thread_type):
         if thread_type == ThreadType.GROUP:
-            return
+            return False
 
-        if author_id in lastMessageTime:
-            
-            lastMessageFromAuthor = lastMessageTime[author_id]
+        if id in self.lastMessageTime:
+            lastMessageWithId = self.lastMessageTime[id]
 
-            someTimeAgo = now - timedelta(minutes=15)
+            someTimeAgo = datetime.now() - timedelta(hours=args.replyAfter)
 
-            if lastMessageFromAuthor < someTimeAgo :
-                self.send(Message(text='co tam? :)'), thread_id=thread_id, thread_type=thread_type)
-
+            return lastMessageWithId < someTimeAgo
         else:
-            self.send(Message(text='co tam? :)'), thread_id=thread_id, thread_type=thread_type)
-        
-        lastMessageTime[author_id] = now
+            return True;
+
+    def randomResponse(self, file):
+        with open(file) as json_file:
+            responses = json.load(json_file)
+        return random.choice(responses)
 
 
-with open('session.json') as json_file:
-    data = json.load(json_file)
+with open(args.sessionFile) as session_file:
+   session = json.load(session_file)
 
-client = WhatBot('', '', session_cookies=data)
+client = WhatBot('', '', session_cookies=session, logging_level=50)
 client.listen()
 
 
+
+
+    
